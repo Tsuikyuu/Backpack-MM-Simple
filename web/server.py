@@ -205,24 +205,19 @@ def logout():
     return redirect(url_for('login'))
 
 @app.route('/')
-@login_required
-@ip_whitelist_required
 def index():
     """首頁"""
+    # require_auth() 已经在 @app.before_request 中处理了认证和IP白名单检查
     return render_template('index.html')
 
 
 @app.route('/api/status', methods=['GET'])
-@login_required
-@ip_whitelist_required
 def get_status():
     """獲取機器人狀態"""
     return jsonify(bot_status)
 
 
 @app.route('/api/start', methods=['POST'])
-@login_required
-@ip_whitelist_required
 def start_bot():
     """啟動做市機器人"""
     global current_strategy, strategy_thread, bot_status, last_stats, balance_cache
@@ -531,8 +526,6 @@ def start_bot():
 
 
 @app.route('/api/stop', methods=['POST'])
-@login_required
-@ip_whitelist_required
 def stop_bot():
     """停止做市機器人"""
     global current_strategy, bot_status, strategy_thread
@@ -583,8 +576,6 @@ def stop_bot():
 
 
 @app.route('/api/config', methods=['GET'])
-@login_required
-@ip_whitelist_required
 def get_config():
     """獲取配置信息"""
     return jsonify({
