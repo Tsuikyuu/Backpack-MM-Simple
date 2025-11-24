@@ -6,13 +6,13 @@
 
 ## 支援的交易所與功能
 
-| 交易所 | 現貨做市 | 永續做市 | 永續對沖 | 邀請連結 |
-|--------|---------|---------|---------|---------|
-| **Backpack** | ✅ | ✅ | ✅ | [註冊連結](https://backpack.exchange/refer/yan) |
-| **Aster** | ❌ | ✅ | ✅ | [註冊連結](https://www.asterdex.com/referral/1a7b6E) |
-| **Paradex** | ❌ | ✅ | ✅ | [註冊連結](https://app.paradex.trade/r/yanowo) |
+| 交易所       | 現貨做市 | 永續做市 | 永續對沖 | 邀請連結                                             |
+| ------------ | -------- | -------- | -------- | ---------------------------------------------------- |
+| **Backpack** | ✅       | ✅       | ✅       | [註冊連結](https://backpack.exchange/refer/yan)      |
+| **Aster**    | ❌       | ✅       | ✅       | [註冊連結](https://www.asterdex.com/referral/1a7b6E) |
+| **Paradex**  | ❌       | ✅       | ✅       | [註冊連結](https://app.paradex.trade/r/yanowo)       |
 
-Twitter：[Yan Practice ⭕散修](https://x.com/practice_y11)
+Twitter：[Yan Practice ⭕ 散修](https://x.com/practice_y11)
 
 ## 功能特點
 
@@ -141,18 +141,98 @@ PARADEX_PROXY_WEBSOCKET=
 
 # Optional Features
 # ENABLE_DATABASE=1  # 啟用資料庫寫入 (預設0關閉)
+
+# Web 界面認證配置（部署在公網時必須設置）
+# 方式1：使用明文密碼（簡單但不推薦用於生產環境）
+WEB_PASSWORD=your_secure_password_here
+
+# 方式2：使用哈希密碼（推薦，更安全）
+# 可以使用以下Python命令生成哈希密碼：
+# python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('your_password'))"
+# WEB_PASSWORD_HASH=pbkdf2:sha256:600000$...
+
+# Web Session 密鑰（用於加密session，建議設置）
+# 生成方式：python -c "import secrets; print(secrets.token_hex(24))"
+WEB_SECRET_KEY=your_secret_key_here
+
+# IP 白名單（可選，用於限制訪問IP）
+# 多個IP用逗號分隔，例如：ALLOWED_IPS=192.168.1.100,203.0.113.50
+# 如果不設置，則允許所有IP訪問（但仍需密碼認證）
+ALLOWED_IPS=
 ```
+
+## Docker 部署（推薦）
+
+使用 Docker 可以快速部署，無需手動安裝 Python 依賴。
+
+### 前置要求
+
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+
+### 快速開始
+
+1. **準備環境變數文件**
+
+   確保已創建 `.env` 文件並配置必要的環境變數（見上方安裝步驟）
+
+2. **創建數據目錄**
+
+```bash
+mkdir -p data logs
+```
+
+3. **啟動服務**
+
+```bash
+# 構建並啟動容器
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+```
+
+4. **訪問 Web 界面**
+
+   啟動後訪問：`http://localhost:5000`
+
+### 常用命令
+
+```bash
+# 啟動服務
+docker-compose up -d
+
+# 停止服務
+docker-compose stop
+
+# 查看日志
+docker-compose logs -f
+
+# 重啟服務
+docker-compose restart
+
+# 停止並刪除容器
+docker-compose down
+```
+
+### 數據持久化
+
+- 數據庫文件保存在 `./data` 目錄
+- 日志文件保存在 `./logs` 目錄
+
+詳細的 Docker 部署說明請查看 [DOCKER.md](DOCKER.md)
+
 ## 使用方法
 
 本程序提供三種運行模式，您可以根據需求選擇：
 
 ### 運行模式說明
 
-| 模式 | 命令 | 適用場景 | 特點 |
-|------|------|---------|------|
-| **Web 控制台** | `python run.py --web` | 可視化操作和監控 | 圖形界面、實時數據、易於上手 |
-| **命令行界面 (CLI)** | `python run.py --cli` | 交互式配置 | 菜單導航、逐步配置、適合測試 |
-| **快速啟動** | `python run.py [參數]` | 自動化運行 | 直接啟動、適合腳本化部署 |
+| 模式                 | 命令                   | 適用場景         | 特點                         |
+| -------------------- | ---------------------- | ---------------- | ---------------------------- |
+| **Web 控制台**       | `python run.py --web`  | 可視化操作和監控 | 圖形界面、實時數據、易於上手 |
+| **命令行界面 (CLI)** | `python run.py --cli`  | 交互式配置       | 菜單導航、逐步配置、適合測試 |
+| **快速啟動**         | `python run.py [參數]` | 自動化運行       | 直接啟動、適合腳本化部署     |
 
 > **推薦順序**：新手建議先用 Web 控制台熟悉功能 → CLI 測試參數 → 快速啟動自動化運行
 
@@ -174,13 +254,53 @@ python run.py --web
 #### 訪問控制台
 
 啟動後，在瀏覽器中訪問：
+
 ```
 http://localhost:5000
 ```
 
+#### Web 界面安全認證
+
+**⚠️ 重要：如果將 Web 界面部署在公網，必須配置認證以防止未授權訪問！**
+
+系統提供了多層安全保護：
+
+1. **密碼認證**（必須配置）
+
+   - 設置 `WEB_PASSWORD` 或 `WEB_PASSWORD_HASH` 環境變量
+   - 訪問 Web 界面時需要輸入密碼登錄
+   - 推薦使用哈希密碼（`WEB_PASSWORD_HASH`）以提高安全性
+
+2. **IP 白名單**（可選，額外保護）
+
+   - 設置 `ALLOWED_IPS` 環境變量限制訪問 IP
+   - 格式：`ALLOWED_IPS=192.168.1.100,203.0.113.50`
+   - 如果不設置，則允許所有 IP 訪問（但仍需密碼認證）
+
+3. **Session 加密**
+   - 設置 `WEB_SECRET_KEY` 環境變量用於加密 session
+   - 如果不設置，系統會自動生成（但重啟後會失效）
+
+**配置示例：**
+
+```bash
+# 在 .env 文件中添加
+WEB_PASSWORD=your_strong_password_here
+WEB_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(24))")
+ALLOWED_IPS=192.168.1.100,203.0.113.50  # 可選
+```
+
+**生成哈希密碼（推薦）：**
+
+```bash
+python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('your_password'))"
+```
+
+然後將輸出設置為 `WEB_PASSWORD_HASH` 環境變量。
+
 #### Web 界面功能
 
-- **實時監控**：查看交易統計、餘額、盈虧等實時數據（每5秒更新）
+- **實時監控**：查看交易統計、餘額、盈虧等實時數據（每 5 秒更新）
 - **策略管理**：啟動/停止做市策略，支持多種策略類型
 - **參數配置**：
   - 交易所選擇（Backpack、Aster、Paradex）
@@ -281,6 +401,7 @@ python run.py --exchange paradex --market-type perp --symbol BTC-USD-PERP --spre
 ### 策略文檔
 
 詳細的策略說明、參數配置和最佳實踐：
+
 - [現貨做市策略](docs/SPOT_MARKET_MAKING.md) - 多層訂單、智能重平衡
 - [永續合約做市策略](docs/PERP_MARKET_MAKING.md) - 倉位管理、風險中性
 - [Maker-Taker 對沖策略](docs/MAKER_TAKER_HEDGE.md) - 即時對沖、零持倉
@@ -290,6 +411,7 @@ python run.py --exchange paradex --market-type perp --symbol BTC-USD-PERP --spre
 ### 命令行參數概覽
 
 #### 基本參數
+
 - `--api-key`: API 密鑰 (可選，默認使用環境變數)
 - `--secret-key`: API 密鑰 (可選，默認使用環境變數)
 - `--exchange`: 交易所選擇 (`backpack`, `aster`, `paradex`)
@@ -302,6 +424,7 @@ python run.py --exchange paradex --market-type perp --symbol BTC-USD-PERP --spre
 - `--strategy`: 策略選擇 (`standard` 或 `maker_hedge`)
 
 #### 高級參數
+
 - `--enable-db` / `--disable-db`: 資料庫寫入控制
 - `--target-position`: 永續合約目標淨倉位
 - `--max-position`: 永續合約最大允許淨倉
@@ -344,6 +467,7 @@ python run.py --exchange paradex --market-type perp --symbol BTC-USD-PERP --spre
 
 ## 文檔目錄
 
+- [API 文檔](docs/API.md) - 完整的 API 客户端接口文档
 - [現貨做市策略](docs/SPOT_MARKET_MAKING.md)
 - [永續合約做市策略](docs/PERP_MARKET_MAKING.md)
 - [Maker-Taker 對沖策略](docs/MAKER_TAKER_HEDGE.md)

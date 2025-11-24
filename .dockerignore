@@ -1,0 +1,64 @@
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# Python 相关
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 数据文件（会在容器中生成）
+data/
+logs/
+*.db
+*.log
+
+# Docker 相关
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 文档和图片
+*.md
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Windows DLL 文件（不需要在容器中）
+*.dll
+
+# 设置文件（通过环境变量传递）
+.env
+.env.example
+settings/
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+
