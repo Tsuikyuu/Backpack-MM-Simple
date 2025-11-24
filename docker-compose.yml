@@ -1,0 +1,65 @@
+services:
+  backpack-mm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backpack-market-maker
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # Backpack Exchange 配置
+      - BACKPACK_KEY=${BACKPACK_KEY:-}
+      - BACKPACK_SECRET=${BACKPACK_SECRET:-}
+      - BASE_URL=${BASE_URL:-https://api.backpack.work}
+      - BACKPACK_PROXY_WEBSOCKET=${BACKPACK_PROXY_WEBSOCKET:-}
+
+      # Aster Exchange 配置
+      - ASTER_API_KEY=${ASTER_API_KEY:-}
+      - ASTER_SECRET_KEY=${ASTER_SECRET_KEY:-}
+      - ASTER_PROXY_WEBSOCKET=${ASTER_PROXY_WEBSOCKET:-}
+
+      # Paradex Exchange 配置
+      - PARADEX_PRIVATE_KEY=${PARADEX_PRIVATE_KEY:-}
+      - PARADEX_ACCOUNT_ADDRESS=${PARADEX_ACCOUNT_ADDRESS:-}
+      - PARADEX_BASE_URL=${PARADEX_BASE_URL:-https://api.prod.paradex.trade/v1}
+      - PARADEX_PROXY_WEBSOCKET=${PARADEX_PROXY_WEBSOCKET:-}
+
+      # 数据库配置
+      - ENABLE_DATABASE=${ENABLE_DATABASE:-0}
+      - DB_PATH=/app/data/orders.db
+
+      # 日志配置
+      - LOG_FILE=/app/logs/market_maker.log
+
+      # 通用 WebSocket 代理（如果使用）
+      - PROXY_WEBSOCKET=${PROXY_WEBSOCKET:-}
+
+      # Web 界面認證配置（部署在公網時必須設置）
+      - WEB_PASSWORD=${WEB_PASSWORD:-}
+      - WEB_PASSWORD_HASH=${WEB_PASSWORD_HASH:-}
+      - WEB_SECRET_KEY=${WEB_SECRET_KEY:-}
+      - ALLOWED_IPS=${ALLOWED_IPS:-}
+    volumes:
+      # 持久化数据库文件
+      - ./data:/app/data
+      # 持久化日志文件
+      - ./logs:/app/logs
+    networks:
+      - backpack-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import requests; requests.get('http://localhost:5000/api/status').raise_for_status()",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  backpack-network:
+    driver: bridge

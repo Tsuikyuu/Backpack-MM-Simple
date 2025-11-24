@@ -2,28 +2,97 @@
 Flask Web服務器
 提供簡單的Web界面來控制做市交易機器人
 """
-from flask import Flask, render_template, request, jsonify
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_socketio import SocketIO, emit, disconnect
+from werkzeug.security import check_password_hash, generate_password_hash
 import threading
 import os
 import sys
 import traceback
 import time
 import socket
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
+from functools import wraps
 
 # 添加父目錄到路徑以導入項目模組
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from logger import setup_logger
+from config import WEB_PASSWORD, WEB_PASSWORD_HASH, WEB_SECRET_KEY, ALLOWED_IPS
 
 logger = setup_logger("web_server")
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
             static_folder=os.path.join(os.path.dirname(__file__), 'static'))
-app.config['SECRET_KEY'] = os.urandom(24)
+
+# 從配置模塊獲取SECRET_KEY，如果沒有則生成一個（不建議用於生產環境）
+secret_key = WEB_SECRET_KEY
+if not secret_key:
+    logger.warning("未設置WEB_SECRET_KEY環境變量，使用隨機生成的密鑰（重啟後會失效）")
+    secret_key = os.urandom(24).hex()
+app.config['SECRET_KEY'] = secret_key
+
+# 配置Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '請先登錄以訪問此頁面'
+login_manager.login_message_category = 'info'
+
+# 用戶類
+class User(UserMixin):
+    def __init__(self, id):
+        self.id = id
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User(user_id)
+
+# 從配置模塊獲取認證配置（已在 config.py 中統一管理）
+# 如果沒有設置密碼，使用默認密碼（僅用於開發，生產環境必須設置）
+_web_password_hash = WEB_PASSWORD_HASH
+if not WEB_PASSWORD and not WEB_PASSWORD_HASH:
+    logger.warning("未設置WEB_PASSWORD或WEB_PASSWORD_HASH環境變量，使用默認密碼 'admin'（僅用於開發）")
+    _web_password_hash = generate_password_hash('admin')
+elif WEB_PASSWORD:
+    logger.info(f"已配置明文密碼（長度: {len(WEB_PASSWORD)}）")
+elif WEB_PASSWORD_HASH:
+    logger.info("已配置哈希密碼")
+
+# 記錄IP白名單配置狀態
+if ALLOWED_IPS:
+    logger.info(f"已配置IP白名單: {', '.join(ALLOWED_IPS)}")
+else:
+    logger.info("未設置IP白名單，允許所有IP訪問（但仍需密碼認證）")
+
+def check_ip_whitelist():
+    """檢查IP白名單"""
+    if not ALLOWED_IPS:
+        return True  # 如果沒有設置白名單，允許所有IP
+    
+    client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+    if client_ip:
+        # 處理多個IP的情況（代理）
+        client_ip = client_ip.split(',')[0].strip()
+    
+    # 檢查是否在白名單中
+    if client_ip in ALLOWED_IPS:
+        return True
+    
+    logger.warning(f"IP {client_ip} 不在白名單中，拒絕訪問")
+    return False
+
+def ip_whitelist_required(f):
+    """IP白名單裝飾器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not check_ip_whitelist():
+            return jsonify({'success': False, 'message': 'IP地址未授權'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
 
 # 配置SocketIO以提高連接穩定性
 socketio = SocketIO(
@@ -63,20 +132,175 @@ balance_cache: Dict[str, Any] = {
     'update_interval': 60  # 默認60秒更新一次餘額
 }
 
+# 餘額緩存（避免頻繁查詢）
+balance_cache: Dict[str, Any] = {
+    'data': None,
+    'timestamp': 0,
+    'update_interval': 60  # 默認60秒更新一次餘額
+}
+
+
+# 全局認證檢查：確保所有未明確允許的路由都需要認證
+@app.before_request
+def require_auth():
+    """全局認證檢查 - 保護所有路由（除了登錄頁面和靜態文件）"""
+    # 允許訪問登錄頁面
+    if request.endpoint == 'login':
+        return None
+    
+    # 允許訪問靜態文件（CSS、JS、圖片等）
+    if request.endpoint == 'static':
+        return None
+    
+    # 檢查IP白名單（如果設置了）
+    if not check_ip_whitelist():
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'message': 'IP地址未授權'}), 403
+        else:
+            return redirect(url_for('login')), 403
+    
+    # 檢查用戶是否已登錄
+    if not current_user.is_authenticated:
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'message': '請先登錄'}), 401
+        else:
+            return redirect(url_for('login', next=request.url))
+    
+    return None
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """登錄頁面"""
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        
+        # 檢查IP白名單
+        if not check_ip_whitelist():
+            return render_template('login.html', error='IP地址未授權'), 403
+        
+        # 驗證密碼
+        if WEB_PASSWORD:
+            # 使用明文密碼比較
+            if password == WEB_PASSWORD:
+                user = User('admin')
+                login_user(user, remember=True)
+                logger.info(f"用戶登錄成功，IP: {request.remote_addr}")
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('index'))
+        elif WEB_PASSWORD_HASH or _web_password_hash:
+            # 使用哈希密碼比較
+            password_hash_to_check = WEB_PASSWORD_HASH if WEB_PASSWORD_HASH else _web_password_hash
+            if check_password_hash(password_hash_to_check, password):
+                user = User('admin')
+                login_user(user, remember=True)
+                logger.info(f"用戶登錄成功，IP: {request.remote_addr}")
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('index'))
+        
+        logger.warning(f"登錄失敗，IP: {request.remote_addr}")
+        return render_template('login.html', error='密碼錯誤')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """登出"""
+    logout_user()
+    logger.info(f"用戶登出，IP: {request.remote_addr}")
+    return redirect(url_for('login'))
+
+# 全局認證檢查：確保所有未明確允許的路由都需要認證
+@app.before_request
+def require_auth():
+    """全局認證檢查 - 保護所有路由（除了登錄頁面和靜態文件）"""
+    # 允許訪問登錄頁面
+    if request.endpoint == 'login':
+        return None
+    
+    # 允許訪問靜態文件（CSS、JS、圖片等）
+    if request.endpoint == 'static':
+        return None
+    
+    # 檢查IP白名單（如果設置了）
+    if not check_ip_whitelist():
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'message': 'IP地址未授權'}), 403
+        else:
+            return redirect(url_for('login')), 403
+    
+    # 檢查用戶是否已登錄
+    if not current_user.is_authenticated:
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'message': '請先登錄'}), 401
+        else:
+            return redirect(url_for('login', next=request.url))
+    
+    return None
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """登錄頁面"""
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        
+        # 檢查IP白名單
+        if not check_ip_whitelist():
+            return render_template('login.html', error='IP地址未授權'), 403
+        
+        # 驗證密碼
+        if WEB_PASSWORD:
+            # 使用明文密碼比較
+            if password == WEB_PASSWORD:
+                user = User('admin')
+                login_user(user, remember=True)
+                logger.info(f"用戶登錄成功，IP: {request.remote_addr}")
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('index'))
+        elif WEB_PASSWORD_HASH or _web_password_hash:
+            # 使用哈希密碼比較
+            password_hash_to_check = WEB_PASSWORD_HASH if WEB_PASSWORD_HASH else _web_password_hash
+            if check_password_hash(password_hash_to_check, password):
+                user = User('admin')
+                login_user(user, remember=True)
+                logger.info(f"用戶登錄成功，IP: {request.remote_addr}")
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('index'))
+        
+        logger.warning(f"登錄失敗，IP: {request.remote_addr}")
+        return render_template('login.html', error='密碼錯誤')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """登出"""
+    logout_user()
+    logger.info(f"用戶登出，IP: {request.remote_addr}")
+    return redirect(url_for('login'))
 
 @app.route('/')
+@login_required
+@ip_whitelist_required
 def index():
     """首頁"""
     return render_template('index.html')
 
 
 @app.route('/api/status', methods=['GET'])
+@login_required
+@ip_whitelist_required
 def get_status():
     """獲取機器人狀態"""
     return jsonify(bot_status)
 
 
 @app.route('/api/start', methods=['POST'])
+@login_required
+@ip_whitelist_required
 def start_bot():
     """啟動做市機器人"""
     global current_strategy, strategy_thread, bot_status, last_stats, balance_cache
@@ -385,6 +609,8 @@ def start_bot():
 
 
 @app.route('/api/stop', methods=['POST'])
+@login_required
+@ip_whitelist_required
 def stop_bot():
     """停止做市機器人"""
     global current_strategy, bot_status, strategy_thread
@@ -435,6 +661,8 @@ def stop_bot():
 
 
 @app.route('/api/config', methods=['GET'])
+@login_required
+@ip_whitelist_required
 def get_config():
     """獲取配置信息"""
     return jsonify({
@@ -453,7 +681,29 @@ def get_config():
 @socketio.on('connect')
 def handle_connect():
     """WebSocket連接建立"""
-    logger.info("客户端已連接")
+    # 檢查IP白名單
+    client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+    if client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+    
+    if ALLOWED_IPS and client_ip not in ALLOWED_IPS:
+        logger.warning(f"WebSocket連接被拒絕：IP {client_ip} 不在白名單中")
+        disconnect()
+        return False
+    
+    # 檢查用戶是否已登錄（通過session）
+    # Flask-Login會在session中存儲user_id（鍵名為'_user_id'）
+    try:
+        # Flask-SocketIO在connect事件中可以訪問session
+        if '_user_id' not in session:
+            logger.warning(f"WebSocket連接被拒絕：用戶未登錄，IP: {client_ip}")
+            disconnect()
+            return False
+    except Exception as e:
+        # 如果無法訪問session，記錄警告但允許連接（由後續API調用驗證）
+        logger.warning(f"WebSocket session檢查出錯: {e}，但允許連接")
+    
+    logger.info(f"客戶端已連接，IP: {client_ip}")
     emit('connected', {'message': '已連接到服務器'})
     # 如果機器人正在運行，發送當前狀態
     if bot_status['running']:

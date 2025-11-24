@@ -57,6 +57,19 @@ PARADEX_BASE_URL = os.getenv('PARADEX_BASE_URL', 'https://api.prod.paradex.trade
 PARADEX_SIGNATURE_TTL_SECONDS = int(os.getenv('PARADEX_SIGNATURE_TTL_SECONDS', '1800'))  # 30分鐘
 PARADEX_JWT_REFRESH_BUFFER = int(os.getenv('PARADEX_JWT_REFRESH_BUFFER', '120'))  # 提前2分鐘刷新
 
+# ==================== Web 界面認證配置 ====================
+
+# Web 界面密碼認證
+WEB_PASSWORD = os.getenv('WEB_PASSWORD', '')
+WEB_PASSWORD_HASH = os.getenv('WEB_PASSWORD_HASH', '')  # 預先哈希的密碼
+
+# Web Session 密鑰（用於加密session）
+WEB_SECRET_KEY = os.getenv('WEB_SECRET_KEY', '')
+
+# IP 白名單（可選，用於限制訪問IP）
+ALLOWED_IPS_STR = os.getenv('ALLOWED_IPS', '')
+ALLOWED_IPS = [ip.strip() for ip in ALLOWED_IPS_STR.split(',') if ip.strip()] if ALLOWED_IPS_STR else []
+
 # ==================== 向後兼容性（保留舊變數名） ====================
 # 注意：這些變數已被標記為 Deprecated，建議使用上面的 BACKPACK_ 前綴變數
 
